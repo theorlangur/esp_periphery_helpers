@@ -5,7 +5,7 @@ idf_component_register(SRCS
                     src/board_led.cpp
                     src/uart.cpp 
                     INCLUDE_DIRS "include"
-                    REQUIRES esp_driver_uart
+                    REQUIRES esp_generic_lib esp_driver_uart
 )
 
 #for being able to compile with clang
