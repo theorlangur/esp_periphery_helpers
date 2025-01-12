@@ -2,10 +2,12 @@ idf_component_register(SRCS
                     include/ph_board_led.hpp
                     include/ph_uart.hpp 
                     include/ph_uart_primitives.hpp 
+                    include/ph_i2c.hpp 
                     src/board_led.cpp
                     src/uart.cpp 
+                    src/i2c.cpp 
                     INCLUDE_DIRS "include"
-                    REQUIRES esp_generic_lib esp_driver_uart
+                    REQUIRES esp_generic_lib esp_driver_uart esp_driver_i2c
 )
 
 #for being able to compile with clang
