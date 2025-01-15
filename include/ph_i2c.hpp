@@ -113,6 +113,54 @@ namespace i2c
         i2c_master_dev_handle_t m_Handle = nullptr;
         i2c_device_config_t m_Config;
     };
+
+    namespace helpers
+    {
+        constexpr static const duration_t kTimeout = duration_t(500);
+        enum class RegAccess: uint8_t
+        {
+            Read = 0x01,
+            Write = 0x02,
+            RW = 0x03
+        };
+
+        template<class Val>
+        using ExpectedValue = std::expected<Val, ::Err>;
+
+        using ExpectedRes = std::expected<void, ::Err>;
+
+        template<typename V, auto r, RegAccess access> requires (!std::is_polymorphic_v<V>)
+        struct Register
+        {
+
+            i2c::I2CDevice &d;
+
+            ExpectedValue<V> Read() const requires (access == RegAccess::Read || access == RegAccess::RW)
+            {
+                V res{};
+                uint8_t *pDst = reinterpret_cast<uint8_t *>(&res);
+                for(size_t i = 0; i < sizeof(V); ++i)
+                {
+                    if (auto res = d.ReadReg8(uint8_t(r) + i, kTimeout); !res)
+                        return std::unexpected(res.error());
+                    else
+                        pDst[i] = res->v;
+                }
+                return res;
+            }
+
+            ExpectedRes Write(V const& v) const requires (access == RegAccess::Write || access == RegAccess::RW)
+            {
+                const uint8_t *pSrc = reinterpret_cast<const uint8_t *>(&v);
+                for(size_t i = 0; i < sizeof(V); ++i)
+                {
+                    if (auto res = d.WriteReg8(uint8_t(r) + i, pSrc[i], kTimeout); !res)
+                        return std::unexpected(res.error());
+                }
+                return {};
+            }
+        };
+    }
 }
 
 #endif
