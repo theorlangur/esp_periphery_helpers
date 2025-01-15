@@ -100,6 +100,8 @@ namespace i2c
         ExpectedResult Close();
 
         ExpectedResult Send(const uint8_t *pBuf, std::size_t len, duration_t d = kForever);
+        using multi_data_to_send_t = std::span<i2c_master_transmit_multi_buffer_info_t>;
+        ExpectedResult SendMulti(multi_data_to_send_t, duration_t d = kForever);
         ExpectedResult Recv(uint8_t *pBuf, std::size_t len, duration_t d = kForever);
         ExpectedResult SendRecv(const uint8_t *pSendBuf, std::size_t sendLen, uint8_t *pRecvBuf, std::size_t recvLen, duration_t d = kForever);
 
@@ -108,6 +110,8 @@ namespace i2c
 
         ExpectedValue<uint8_t> ReadReg8(uint8_t reg, duration_t d = kForever);
         ExpectedValue<uint16_t> ReadReg16(uint8_t reg, duration_t d = kForever);
+        ExpectedResult ReadRegMulti(uint8_t reg, std::span<uint8_t> dst, duration_t d = kForever);
+        ExpectedResult WriteRegMulti(uint8_t reg, std::span<const uint8_t> src, duration_t d = kForever);
     private:
         const I2CBusMaster &m_Bus;
         i2c_master_dev_handle_t m_Handle = nullptr;
@@ -158,6 +162,83 @@ namespace i2c
                         return std::unexpected(res.error());
                 }
                 return {};
+            }
+        };
+
+        struct ByteCfg
+        {
+            uint8_t offset;
+            uint8_t bit_off = 0;
+            uint8_t bit_len = 8;
+        };
+        template<uint8_t N>
+        struct RegConfig
+        {
+            using reg_config_tag = void;
+            uint8_t addr;
+            RegAccess access;
+            ByteCfg bytes[N];
+        };
+
+        template<class... T> requires (std::is_same_v<T, ByteCfg> && ...)
+        auto ConfigBytes(uint8_t baseAddr, RegAccess access, T... bytes)
+        {
+            RegConfig<sizeof...(T)> res{baseAddr, access, {bytes...}};
+            return res;
+        }
+
+        template<typename V, auto r, RegAccess access> requires (!std::is_polymorphic_v<V>)
+        struct RegisterMultiByte
+        {
+            i2c::I2CDevice &d;
+
+            ExpectedRes Read(V &res) const requires (access == RegAccess::Read || access == RegAccess::RW)
+            {
+                return d.ReadRegMulti(r, {(uint8_t*)res, sizeof(V)}, kTimeout);
+            }
+
+            ExpectedRes Write(V const& v) const requires (access == RegAccess::Write || access == RegAccess::RW)
+            {
+                const uint8_t *pSrc = reinterpret_cast<const uint8_t *>(&v);
+                return d.WriteRegMulti(r, {pSrc, sizeof(V)}, kTimeout);
+            }
+        };
+
+        template<typename V, auto regCfg> requires (!std::is_polymorphic_v<V> && requires { typename decltype(regCfg)::reg_config_tag; })
+        struct RegisterCustomBytes
+        {
+            i2c::I2CDevice &d;
+
+            ExpectedRes Read(V &res) const requires (regCfg.access == RegAccess::Read || regCfg.access == RegAccess::RW)
+            {
+                uint8_t *pDst = reinterpret_cast<uint8_t*>(&res);
+                size_t dstBitOffset = 0;
+                uint8_t tempDst[std::size(regCfg.bytes)];
+                if (auto r = d.ReadRegMulti(regCfg.addr, tempDst); !r)
+                    return r;
+
+                for(int i = 0; i < std::size(tempDst); ++i)
+                {
+                    auto b = regCfg.bytes[i];
+                    uint8_t v = tempDst[i];
+                    uint8_t bits_src_left = b.bit_len;
+                    v = (v >> b.bit_off) & ((1 << b.bit_len) - 1);
+                    uint8_t bits_dst_off = dstBitOffset % 8;
+                    uint8_t *pT = pDst + dstBitOffset / 8;
+                    uint8_t bits_dst_eff = std::min(uint8_t(8 - bits_dst_off), bits_src_left);
+                    uint8_t maskToClear = (1 << bits_dst_eff) - 1;
+                    *pT &= ~(maskToClear << bits_dst_off);//clear the bits
+                    *pT |= v << bits_dst_off;
+                    dstBitOffset += bits_dst_eff;
+                    bits_src_left -= bits_dst_eff;
+                    if (bits_src_left)
+                    {
+                        ++pT;
+                        v = tempDst[i];
+                        *pT = (v >> (b.bit_off + b.bit_len - bits_src_left)) & ((1 << bits_src_left) - 1);
+                        dstBitOffset += bits_src_left;
+                    }
+                }
             }
         };
     }

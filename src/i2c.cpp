@@ -196,6 +196,15 @@ namespace i2c
         return std::ref(*this);
     }
 
+    I2CDevice::ExpectedResult I2CDevice::SendMulti(multi_data_to_send_t bufs, duration_t d)
+    {
+        if (!m_Handle) return std::unexpected(Err{"I2CDevice::Send", ESP_ERR_INVALID_STATE});
+
+        thread::LockGuard busLock{m_Bus.m_pLock};
+        CALL_ESP_EXPECTED("I2CDevice::SendMulti", i2c_master_multi_buffer_transmit(m_Handle, bufs.data(), bufs.size(), d.count()));
+        return std::ref(*this);
+    }
+
     I2CDevice::ExpectedResult I2CDevice::Recv(uint8_t *pBuf, std::size_t len, duration_t d)
     {
         if (!m_Handle) return std::unexpected(Err{"I2CDevice::Recv", ESP_ERR_INVALID_STATE});
@@ -244,5 +253,19 @@ namespace i2c
             .transform([&](I2CDevice &d)->RetValue<uint16_t>{
                 return RetValue<uint16_t>{std::ref(d), data};
             });
+    }
+
+    I2CDevice::ExpectedResult I2CDevice::ReadRegMulti(uint8_t reg, std::span<uint8_t> dst, duration_t d)
+    {
+        return SendRecv(&reg, sizeof(reg), dst.data(), dst.size(), d);
+    }
+
+    I2CDevice::ExpectedResult I2CDevice::WriteRegMulti(uint8_t reg, std::span<const uint8_t> src, duration_t d)
+    {
+        i2c_master_transmit_multi_buffer_info_t bufs[] = {
+            {&reg, 1},
+            {(uint8_t*)src.data(), src.size()}
+        };
+        return SendMulti(bufs, d);
     }
 }
