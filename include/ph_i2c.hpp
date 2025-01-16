@@ -194,13 +194,21 @@ namespace i2c
 
             ExpectedRes Read(V &res) const requires (access == RegAccess::Read || access == RegAccess::RW)
             {
-                return d.ReadRegMulti(r, {(uint8_t*)res, sizeof(V)}, kTimeout);
+                auto ret = d.ReadRegMulti(r, {(uint8_t*)&res, sizeof(V)}, kTimeout);
+                if (ret)
+                    return {};
+                else
+                    return std::unexpected(ret.error());
             }
 
             ExpectedRes Write(V const& v) const requires (access == RegAccess::Write || access == RegAccess::RW)
             {
                 const uint8_t *pSrc = reinterpret_cast<const uint8_t *>(&v);
-                return d.WriteRegMulti(r, {pSrc, sizeof(V)}, kTimeout);
+                auto ret = d.WriteRegMulti(r, {pSrc, sizeof(V)}, kTimeout);
+                if (ret)
+                    return {};
+                else
+                    return std::unexpected(ret.error());
             }
         };
 
@@ -215,7 +223,7 @@ namespace i2c
                 size_t dstBitOffset = 0;
                 uint8_t tempDst[std::size(regCfg.bytes)];
                 if (auto r = d.ReadRegMulti(regCfg.addr, tempDst); !r)
-                    return r;
+                    return std::unexpected(r.error());
 
                 for(int i = 0; i < std::size(tempDst); ++i)
                 {
