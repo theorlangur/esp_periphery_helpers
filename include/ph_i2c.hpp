@@ -112,6 +112,18 @@ namespace i2c
         ExpectedValue<uint16_t> ReadReg16(uint8_t reg, duration_t d = kForever);
         ExpectedResult ReadRegMulti(uint8_t reg, std::span<uint8_t> dst, duration_t d = kForever);
         ExpectedResult WriteRegMulti(uint8_t reg, std::span<const uint8_t> src, duration_t d = kForever);
+
+#ifndef NDEBUG
+        void dbg_on_send(bool v) { m_Dbg.print_send = v; }
+        void dbg_on_recv(bool v) { m_Dbg.print_recv = v; }
+private:
+        struct
+        {
+            uint8_t print_send: 1 = 0;
+            uint8_t print_recv: 1 = 0;
+        }m_Dbg;
+public:
+#endif
     private:
         const I2CBusMaster &m_Bus;
         i2c_master_dev_handle_t m_Handle = nullptr;

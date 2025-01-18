@@ -182,15 +182,10 @@ namespace i2c
     {
         if (!m_Handle) return std::unexpected(Err{"I2CDevice::Send", ESP_ERR_INVALID_STATE});
 
-        //printf("Send: Size=%d\n", len);
-        //printf("Bytes: ");
-        //if (len > 0) printf(" %X", pBuf[0]);
-        //if (len > 1) printf(" %X", pBuf[1]);
-        //if (len > 2) printf(" %X", pBuf[2]);
-        //if (len > 3) printf(" %X", pBuf[3]);
-        //printf("\n");
-        //fflush(stdout);
-
+#ifndef NDEBUG
+        if (m_Dbg.print_send)
+            FMT_PRINT("Send: {}\n", std::span<const uint8_t>(pBuf, len));
+#endif
         thread::LockGuard busLock{m_Bus.m_pLock};
         CALL_ESP_EXPECTED("I2CDevice::Send", i2c_master_transmit(m_Handle, pBuf, len, d.count()));
         return std::ref(*this);
@@ -200,6 +195,17 @@ namespace i2c
     {
         if (!m_Handle) return std::unexpected(Err{"I2CDevice::Send", ESP_ERR_INVALID_STATE});
 
+#ifndef NDEBUG
+        if (m_Dbg.print_send)
+        {
+            FMT_PRINT("SendMulti:\n");
+            for(auto &b : bufs)
+            {
+                FMT_PRINT("{}\n", std::span<const uint8_t>(b.write_buffer, b.buffer_size));
+            }
+            FMT_PRINT("SendMulti End\n");
+        }
+#endif
         thread::LockGuard busLock{m_Bus.m_pLock};
         CALL_ESP_EXPECTED("I2CDevice::SendMulti", i2c_master_multi_buffer_transmit(m_Handle, bufs.data(), bufs.size(), d.count()));
         return std::ref(*this);
@@ -209,8 +215,14 @@ namespace i2c
     {
         if (!m_Handle) return std::unexpected(Err{"I2CDevice::Recv", ESP_ERR_INVALID_STATE});
 
-        thread::LockGuard busLock{m_Bus.m_pLock};
-        CALL_ESP_EXPECTED("I2CDevice::Recv", i2c_master_receive(m_Handle, pBuf, len, d.count()));
+        {
+            thread::LockGuard busLock{m_Bus.m_pLock};
+            CALL_ESP_EXPECTED("I2CDevice::Recv", i2c_master_receive(m_Handle, pBuf, len, d.count()));
+        }
+#ifndef NDEBUG
+        if (m_Dbg.print_recv)
+            FMT_PRINT("Recv: {}\n", std::span<uint8_t>(pBuf, len));
+#endif
         return std::ref(*this);
     }
 
@@ -218,8 +230,18 @@ namespace i2c
     {
         if (!m_Handle) return std::unexpected(Err{"I2CDevice::SendRecv", ESP_ERR_INVALID_STATE});
 
-        thread::LockGuard busLock{m_Bus.m_pLock};
-        CALL_ESP_EXPECTED("I2CDevice::SendRecv", i2c_master_transmit_receive(m_Handle, pSendBuf, sendLen, pRecvBuf, recvLen, d.count()));
+#ifndef NDEBUG
+        if (m_Dbg.print_send)
+            FMT_PRINT("Send: {}\n", std::span<const uint8_t>(pSendBuf, sendLen));
+#endif
+        {
+            thread::LockGuard busLock{m_Bus.m_pLock};
+            CALL_ESP_EXPECTED("I2CDevice::SendRecv", i2c_master_transmit_receive(m_Handle, pSendBuf, sendLen, pRecvBuf, recvLen, d.count()));
+        }
+#ifndef NDEBUG
+        if (m_Dbg.print_recv)
+            FMT_PRINT("Recv: {}\n", std::span<uint8_t>(pRecvBuf, recvLen));
+#endif
         return std::ref(*this);
     }
 
