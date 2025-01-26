@@ -140,6 +140,12 @@ public:
             RW = 0x03
         };
 
+        enum class ByteOrder
+        {
+            LE,
+            BE
+        };
+
         template<class Val>
         using ExpectedValue = std::expected<Val, ::Err>;
 
@@ -199,24 +205,85 @@ public:
             return res;
         }
 
-        template<typename V, auto r, RegAccess access> requires (!std::is_polymorphic_v<V>)
+        template<typename V, auto r, RegAccess access, ByteOrder bo = ByteOrder::LE, size_t word_size = 0> 
+            requires (!std::is_polymorphic_v<V>) && ((word_size == 0) || ((sizeof(V) % word_size == 0) && (word_size % 2 == 0)))
         struct RegisterMultiByte
         {
             i2c::I2CDevice &d;
 
             ExpectedRes Read(V &res) const requires (access == RegAccess::Read || access == RegAccess::RW)
             {
-                auto ret = d.ReadRegMulti(r, {(uint8_t*)&res, sizeof(V)}, kTimeout);
+                uint8_t *pDst = (uint8_t*)&res;
+                auto ret = d.ReadRegMulti(uint8_t(r), {pDst, sizeof(V)}, kTimeout);
                 if (ret)
+                {
+                    if constexpr (bo == ByteOrder::BE)
+                    {
+                        if constexpr (word_size == 0)
+                        {
+                            for(size_t i = 0; i < (sizeof(V) / 2); ++i)
+                                std::swap(pDst[i], pDst[sizeof(V) - i - 1]);
+                        }else
+                        {
+                            for(size_t w = 0; w < (sizeof(V) / word_size); ++w)
+                            {
+                                if constexpr (word_size == 2)
+                                    std::swap(pDst[w * word_size], pDst[w * word_size + 1]);
+                                else if constexpr (word_size == 4)
+                                {
+                                    std::swap(pDst[w * word_size], pDst[w * word_size + 3]);
+                                    std::swap(pDst[w * word_size + 1], pDst[w * word_size + 2]);
+                                }
+                                else
+                                {
+                                    for(size_t i = 0; i < (word_size / 2); ++i)
+                                        std::swap(pDst[w * word_size + i], pDst[w * word_size + word_size - i - 1]);
+                                }
+                            }
+                        }
+                    }
                     return {};
+                }
                 else
                     return std::unexpected(ret.error());
             }
 
             ExpectedRes Write(V const& v) const requires (access == RegAccess::Write || access == RegAccess::RW)
             {
+                uint8_t buf[sizeof(V)];
                 const uint8_t *pSrc = reinterpret_cast<const uint8_t *>(&v);
-                auto ret = d.WriteRegMulti(r, {pSrc, sizeof(V)}, kTimeout);
+                if constexpr (bo == ByteOrder::BE)
+                {
+                    if constexpr (word_size == 0)
+                    {
+                        for(size_t i = 0; i < sizeof(V); ++i)
+                            buf[i] = pSrc[sizeof(V) - i - 1];
+                    }else
+                    {
+                        for(size_t w = 0; w < (sizeof(V) / word_size); ++w)
+                        {
+                            if constexpr (word_size == 2)
+                            {
+                                buf[w * word_size] = pSrc[w * word_size + 1];
+                                buf[w * word_size + 1] = pSrc[w * word_size];
+                            }
+                            else if constexpr (word_size == 4)
+                            {
+                                buf[w * word_size] = pSrc[w * word_size + 3];
+                                buf[w * word_size + 1] = pSrc[w * word_size + 2];
+                                buf[w * word_size + 2] = pSrc[w * word_size + 1];
+                                buf[w * word_size + 3] = pSrc[w * word_size];
+                            }
+                            else
+                            {
+                                for(size_t i = 0; i < (word_size / 2); ++i)
+                                    buf[w * word_size + i] = pSrc[w * word_size + word_size - i - 1];
+                            }
+                        }
+                    }
+                    pSrc = buf;
+                }
+                auto ret = d.WriteRegMulti(uint8_t(r), {pSrc, sizeof(V)}, kTimeout);
                 if (ret)
                     return {};
                 else
